@@ -15,7 +15,6 @@ static const uint16_t VL53L1_IDENTIFICATION__REVISION_ID = 0x0111;
 static const uint16_t VL53L1_PAD_I2C_HV__EXTSUP_CONFIG = 0x002E;
 
 static const uint16_t VL53L1_SOFT_RESET = SOFT_RESET;
-static const uint16_t VL53L1_SYSTEM__MODE_START = SYSTEM__MODE_START;
 
 std::list<VL53L1XSensor *> VL53L1XSensor::vl53_sensors;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 bool VL53L1XSensor::enable_pin_setup_complete = false;   // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
@@ -65,10 +64,16 @@ void VL53L1XSensor::dump_config() {
 	ESP_LOGCONFIG(TAG, "  Timeout: %u%s", this->timeout_us_, this->timeout_us_ > 0 ? "us" : " (no timeout)");
 	ESP_LOGCONFIG(TAG, "  Timing Budget: %u us", this->measurement_timing_budget_us_);
 	ESP_LOGCONFIG(TAG, "  Distance Mode: %s", this->long_range_ ? "long" : "short");
+	if (this->roi_size_configured_) {
+		ESP_LOGCONFIG(TAG, "  ROI Size: %ux%u", this->roi_width_, this->roi_height_);
+	}
+	if (this->roi_center_configured_) {
+		ESP_LOGCONFIG(TAG, "  ROI Center: %u", this->roi_center_);
+	}
 	if (this->id_read_ok_) {
-		ESP_LOGCONFIG(TAG, "  Model ID 0x%04X 0x%02X", VL53L1_IDENTIFICATION__MODEL_ID, this->model_id_hi_);
-		ESP_LOGCONFIG(TAG, "  Module type 0x%04X 0x%02X", VL53L1_IDENTIFICATION__MODULE_TYPE, this->module_type_);
-		ESP_LOGCONFIG(TAG, "  Mask revision 0x%04X 0x%02X", VL53L1_IDENTIFICATION__REVISION_ID, this->revision_id_);
+		ESP_LOGCONFIG(TAG, "  Model ID 0x%02X", this->model_id_hi_);
+		ESP_LOGCONFIG(TAG, "  Module type 0x%02X", this->module_type_);
+		ESP_LOGCONFIG(TAG, "  Mask revision 0x%02X", this->revision_id_);
 	} else {
 		ESP_LOGCONFIG(TAG, "  Identification registers: unavailable");
 	}
@@ -88,37 +93,40 @@ void VL53L1XSensor::setup() {
 
 	if (this->enable_pin_ != nullptr) {
 		this->enable_pin_->digital_write(true);
-		delayMicroseconds(100);
+		delay(2);
 	}
 
 	uint8_t final_address = address_;
 	this->set_i2c_address(0x29);
 
 	uint16_t model_id = 0;
-	if (!this->read_reg16_(VL53L1_IDENTIFICATION__MODEL_ID, &model_id)) {
-		ESP_LOGE(TAG, "'%s' - failed reading model id", this->name_.c_str());
-		this->mark_failed();
-		return;
-	}
 	uint8_t module_type = 0;
-	if (!this->read_reg_(VL53L1_IDENTIFICATION__MODULE_TYPE, &module_type)) {
-		ESP_LOGE(TAG, "'%s' - failed reading module type", this->name_.c_str());
-		this->mark_failed();
-		return;
-	}
 	uint8_t revision_id = 0;
-	if (!this->read_reg_(VL53L1_IDENTIFICATION__REVISION_ID, &revision_id)) {
-		ESP_LOGE(TAG, "'%s' - failed reading mask revision", this->name_.c_str());
-		this->mark_failed();
-		return;
+	const uint32_t init_timeout_us = this->timeout_us_ > 0 ? this->timeout_us_ : 500000U;
+	uint32_t id_start_us = micros();
+	while (true) {
+		const bool id_ok = this->read_reg16_(VL53L1_IDENTIFICATION__MODEL_ID, &model_id) &&
+								 this->read_reg_(VL53L1_IDENTIFICATION__MODULE_TYPE, &module_type) &&
+								 this->read_reg_(VL53L1_IDENTIFICATION__REVISION_ID, &revision_id);
+		if (id_ok) {
+			break;
+		}
+
+		if ((micros() - id_start_us) > init_timeout_us) {
+			ESP_LOGE(TAG, "'%s' - timeout reading identification registers after enable (%u us)", this->name_.c_str(),
+						 init_timeout_us);
+			this->mark_failed();
+			return;
+		}
+		delay(2);
+		yield();
 	}
-	ESP_LOGCONFIG(TAG, "  Model ID 0x%04X 0x%02X", VL53L1_IDENTIFICATION__MODEL_ID,
-						 static_cast<uint8_t>(model_id >> 8));
-	ESP_LOGCONFIG(TAG, "  Module type 0x%04X 0x%02X", VL53L1_IDENTIFICATION__MODULE_TYPE, module_type);
-	ESP_LOGCONFIG(TAG, "  Mask revision 0x%04X 0x%02X", VL53L1_IDENTIFICATION__REVISION_ID, revision_id);
-	ESP_LOGI(TAG, "Model ID 0x%04X 0x%02X", VL53L1_IDENTIFICATION__MODEL_ID, static_cast<uint8_t>(model_id >> 8));
-	ESP_LOGI(TAG, "Module type 0x%04X 0x%02X", VL53L1_IDENTIFICATION__MODULE_TYPE, module_type);
-	ESP_LOGI(TAG, "Mask revision 0x%04X 0x%02X", VL53L1_IDENTIFICATION__REVISION_ID, revision_id);
+	ESP_LOGCONFIG(TAG, "  Model ID 0x%02X", static_cast<uint8_t>(model_id >> 8));
+	ESP_LOGCONFIG(TAG, "  Module type 0x%02X", module_type);
+	ESP_LOGCONFIG(TAG, "  Mask revision 0x%02X", revision_id);
+	ESP_LOGI(TAG, "Model ID 0x%02X", static_cast<uint8_t>(model_id >> 8));
+	ESP_LOGI(TAG, "Module type 0x%02X", module_type);
+	ESP_LOGI(TAG, "Mask revision 0x%02X", revision_id);
 	this->model_id_hi_ = static_cast<uint8_t>(model_id >> 8);
 	this->module_type_ = module_type;
 	this->revision_id_ = revision_id;
@@ -203,6 +211,23 @@ void VL53L1XSensor::setup() {
 		return;
 	}
 
+	if (this->roi_size_configured_) {
+		if (VL53L1X_SetROI(0x29, this->roi_width_, this->roi_height_) != 0) {
+			ESP_LOGE(TAG, "'%s' - failed to set ROI size %ux%u", this->name_.c_str(), this->roi_width_,
+						 this->roi_height_);
+			this->mark_failed();
+			return;
+		}
+	}
+
+	if (this->roi_center_configured_) {
+		if (VL53L1X_SetROICenter(0x29, this->roi_center_) != 0) {
+			ESP_LOGE(TAG, "'%s' - failed to set ROI center %u", this->name_.c_str(), this->roi_center_);
+			this->mark_failed();
+			return;
+		}
+	}
+
 	const uint32_t min_timeout_us = this->measurement_timing_budget_us_ * 2U;
 	if (this->timeout_us_ > 0 && this->timeout_us_ < min_timeout_us) {
 		ESP_LOGW(TAG, "'%s' - timeout %u us too low for timing budget %u us, clamping to %u us", this->name_.c_str(),
@@ -210,9 +235,14 @@ void VL53L1XSensor::setup() {
 		this->timeout_us_ = min_timeout_us;
 	}
 
-	uint16_t signal_threshold_kcps = static_cast<uint16_t>(this->signal_rate_limit_ * 1000.0f);
+	const float signal_rate_limit_mcps = this->signal_rate_limit_;
+	const float signal_rate_q16_16 = signal_rate_limit_mcps * 65536.0f;
+	uint16_t signal_threshold_kcps = static_cast<uint16_t>((signal_rate_q16_16 / 65536.0f) * 1000.0f + 0.5f);
 	if (VL53L1X_SetSignalThreshold(0x29, signal_threshold_kcps) != 0) {
 		ESP_LOGW(TAG, "'%s' - failed to set signal threshold", this->name_.c_str());
+	} else {
+		ESP_LOGV(TAG, "'%s' - signal rate limit %.3f MCPS (%u kcps)", this->name_.c_str(), signal_rate_limit_mcps,
+					 signal_threshold_kcps);
 	}
 
 	if (VL53L1X_SetI2CAddress(0x29, static_cast<uint8_t>(final_address << 1)) != 0) {
@@ -292,6 +322,22 @@ void VL53L1XSensor::loop() {
 		this->status_momentary_warning("read", 5000);
 		return;
 	}
+
+	uint16_t signal_rate_kcps = 0;
+	if (VL53L1X_GetSignalRate(this->address_, &signal_rate_kcps) == 0) {
+		ESP_LOGV(TAG, "'%s' - readSignalRate()=%u kcps", this->name_.c_str(), signal_rate_kcps);
+	} else {
+		ESP_LOGV(TAG, "'%s' - readSignalRate() failed", this->name_.c_str());
+	}
+
+	uint16_t ambient_rate_kcps = 0;
+	if (VL53L1X_GetAmbientRate(this->address_, &ambient_rate_kcps) == 0) {
+		ESP_LOGV(TAG, "'%s' - readAmbientRate()=%u kcps", this->name_.c_str(), ambient_rate_kcps);
+	} else {
+		ESP_LOGV(TAG, "'%s' - readAmbientRate() failed", this->name_.c_str());
+	}
+
+	ESP_LOGV(TAG, "'%s' - readRangeStatus()=%u", this->name_.c_str(), range_status);
 
 	VL53L1X_ClearInterrupt(this->address_);
 	this->initiated_read_ = false;

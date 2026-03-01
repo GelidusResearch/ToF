@@ -21,7 +21,12 @@ VL53L1XSensor = vl53l1x_ns.class_(
 CONF_SIGNAL_RATE_LIMIT = "signal_rate_limit"
 CONF_LONG_RANGE = "long_range"
 CONF_TIMING_BUDGET = "timing_budget"
+CONF_ROI_WIDTH = "roi_width"
+CONF_ROI_HEIGHT = "roi_height"
+CONF_ROI_CENTER = "roi_center"
 SUPPORTED_TIMING_BUDGET_US = [20000, 33000, 50000, 100000, 200000, 500000]
+DEFAULT_ROI_WIDTH = 16
+DEFAULT_ROI_HEIGHT = 16
 
 
 def check_keys(obj):
@@ -63,11 +68,14 @@ CONFIG_SCHEMA = cv.All(
                 min=0.0, max=512.0, min_included=False, max_included=False
             ),
             cv.Optional(CONF_LONG_RANGE, default=True): cv.boolean,
-            cv.Optional(CONF_TIMEOUT, default="100ms"): check_timeout,
+            cv.Optional(CONF_TIMEOUT, default="500ms"): check_timeout,
             cv.Optional(CONF_ENABLE_PIN): pins.gpio_output_pin_schema,
             cv.Optional(CONF_TIMING_BUDGET, default="50ms"): cv.All(
                 check_timing_budget,
             ),
+            cv.Optional(CONF_ROI_WIDTH): cv.int_range(min=4, max=16),
+            cv.Optional(CONF_ROI_HEIGHT): cv.int_range(min=4, max=16),
+            cv.Optional(CONF_ROI_CENTER, default=199): cv.int_range(min=0, max=255),
         }
     )
     .extend(cv.polling_component_schema("60s"))
@@ -89,5 +97,11 @@ async def to_code(config):
 
     if timing_budget := config.get(CONF_TIMING_BUDGET):
         cg.add(var.set_timing_budget(timing_budget.total_microseconds))
+
+    if CONF_ROI_WIDTH in config or CONF_ROI_HEIGHT in config:
+        cg.add(var.set_roi_width(config.get(CONF_ROI_WIDTH, DEFAULT_ROI_WIDTH)))
+        cg.add(var.set_roi_height(config.get(CONF_ROI_HEIGHT, DEFAULT_ROI_HEIGHT)))
+
+    cg.add(var.set_roi_center(config[CONF_ROI_CENTER]))
 
     await i2c.register_i2c_device(var, config)
