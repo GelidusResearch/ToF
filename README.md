@@ -29,11 +29,13 @@ i2c:
   scl: GPIO22
   scan: true
 
-sensor:
-  - platform: vl53l1x
-    name: "Distance"
+vl53l1x:
+    id: tof1
+    internal: true        # Keep data local
     address: 0x29
-    update_interval: 60s
+    timing_budget: 100ms
+    update_interval: 125ms
+    long_range: true
 ```
 
 ## Configuration Options
