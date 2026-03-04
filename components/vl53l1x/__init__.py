@@ -1,7 +1,8 @@
 from esphome import pins
 import esphome.codegen as cg
-from esphome.components import i2c, sensor
 import esphome.config_validation as cv
+from esphome.components import i2c
+import esphome.components.sensor as esphome_sensor
 from esphome.const import (
     CONF_ADDRESS,
     CONF_ENABLE_PIN,
@@ -11,11 +12,12 @@ from esphome.const import (
     UNIT_METER,
 )
 
+AUTO_LOAD = ["sensor"]
 DEPENDENCIES = ["i2c"]
 
 vl53l1x_ns = cg.esphome_ns.namespace("vl53l1x")
 VL53L1XSensor = vl53l1x_ns.class_(
-    "VL53L1XSensor", sensor.Sensor, cg.PollingComponent, i2c.I2CDevice
+    "VL53L1XSensor", esphome_sensor.Sensor, cg.PollingComponent, i2c.I2CDevice
 )
 
 CONF_SIGNAL_RATE_LIMIT = "signal_rate_limit"
@@ -55,7 +57,7 @@ def check_timing_budget(value):
 
 
 CONFIG_SCHEMA = cv.All(
-    sensor.sensor_schema(
+    esphome_sensor.sensor_schema(
         VL53L1XSensor,
         unit_of_measurement=UNIT_METER,
         icon=ICON_ARROW_EXPAND_VERTICAL,
@@ -85,7 +87,7 @@ CONFIG_SCHEMA = cv.All(
 
 
 async def to_code(config):
-    var = await sensor.new_sensor(config)
+    var = await esphome_sensor.new_sensor(config)
     await cg.register_component(var, config)
     cg.add(var.set_signal_rate_limit(config[CONF_SIGNAL_RATE_LIMIT]))
     cg.add(var.set_long_range(config[CONF_LONG_RANGE]))
