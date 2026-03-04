@@ -29,7 +29,8 @@ i2c:
   scl: GPIO22
   scan: true
 
-vl53l1x:
+sensor:
+  - platform: vl53l1x
     id: tof1
     internal: true        # Keep data local
     address: 0x29
