@@ -44,6 +44,7 @@ class VL53L1XSensor : public sensor::Sensor, public PollingComponent, public i2c
     this->roi_center_ = roi_center;
     this->roi_center_configured_ = true;
   }
+  void set_fov_preset(const char *preset) { this->fov_preset_ = preset; }
 
  protected:
   bool write_reg_(uint16_t reg, uint8_t value);
@@ -64,6 +65,7 @@ class VL53L1XSensor : public sensor::Sensor, public PollingComponent, public i2c
   uint8_t roi_center_{0};
   bool roi_size_configured_{false};
   bool roi_center_configured_{false};
+  const char *fov_preset_{nullptr};
   bool initiated_read_{false};
 
   uint32_t timeout_start_us_;

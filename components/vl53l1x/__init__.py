@@ -26,9 +26,18 @@ CONF_TIMING_BUDGET = "timing_budget"
 CONF_ROI_WIDTH = "roi_width"
 CONF_ROI_HEIGHT = "roi_height"
 CONF_ROI_CENTER = "roi_center"
+CONF_FOV = "fov"
 SUPPORTED_TIMING_BUDGET_US = [20000, 33000, 50000, 100000, 200000, 500000]
 DEFAULT_ROI_WIDTH = 16
 DEFAULT_ROI_HEIGHT = 16
+
+# Named FoV presets mapped to (roi_width, roi_height)
+# Approximate horizontal FoV: wide ~27°, medium ~15°, narrow ~8°
+FOV_PRESETS = {
+    "wide":   (16, 16),
+    "medium": (8,  8),
+    "narrow": (4,  4),
+}
 
 
 def check_keys(obj):
@@ -56,6 +65,17 @@ def check_timing_budget(value):
     return value
 
 
+def check_roi_fov_exclusive(obj):
+    has_roi = any(k in obj for k in (CONF_ROI_WIDTH, CONF_ROI_HEIGHT, CONF_ROI_CENTER))
+    has_fov = CONF_FOV in obj
+    if has_roi and has_fov:
+        raise cv.Invalid(
+            "Cannot use 'fov' together with 'roi_width', 'roi_height', or 'roi_center'. "
+            "Use one or the other."
+        )
+    return obj
+
+
 CONFIG_SCHEMA = cv.All(
     esphome_sensor.sensor_schema(
         VL53L1XSensor,
@@ -77,12 +97,14 @@ CONFIG_SCHEMA = cv.All(
             ),
             cv.Optional(CONF_ROI_WIDTH): cv.int_range(min=4, max=16),
             cv.Optional(CONF_ROI_HEIGHT): cv.int_range(min=4, max=16),
-            cv.Optional(CONF_ROI_CENTER, default=199): cv.int_range(min=0, max=255),
+            cv.Optional(CONF_ROI_CENTER): cv.int_range(min=0, max=255),
+            cv.Optional(CONF_FOV): cv.one_of(*FOV_PRESETS, lower=True),
         }
     )
     .extend(cv.polling_component_schema("60s"))
     .extend(i2c.i2c_device_schema(0x29)),
     check_keys,
+    check_roi_fov_exclusive,
 )
 
 
@@ -100,10 +122,15 @@ async def to_code(config):
     if timing_budget := config.get(CONF_TIMING_BUDGET):
         cg.add(var.set_timing_budget(timing_budget.total_microseconds))
 
-    if CONF_ROI_WIDTH in config or CONF_ROI_HEIGHT in config:
+    if CONF_FOV in config:
+        roi_w, roi_h = FOV_PRESETS[config[CONF_FOV]]
+        cg.add(var.set_roi_width(roi_w))
+        cg.add(var.set_roi_height(roi_h))
+        cg.add(var.set_fov_preset(config[CONF_FOV]))
+    elif CONF_ROI_WIDTH in config or CONF_ROI_HEIGHT in config:
         cg.add(var.set_roi_width(config.get(CONF_ROI_WIDTH, DEFAULT_ROI_WIDTH)))
         cg.add(var.set_roi_height(config.get(CONF_ROI_HEIGHT, DEFAULT_ROI_HEIGHT)))
 
-    cg.add(var.set_roi_center(config[CONF_ROI_CENTER]))
+    cg.add(var.set_roi_center(config.get(CONF_ROI_CENTER, 199)))
 
     await i2c.register_i2c_device(var, config)

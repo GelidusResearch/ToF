@@ -64,7 +64,9 @@ void VL53L1XSensor::dump_config() {
 	ESP_LOGCONFIG(TAG, "  Timeout: %u%s", this->timeout_us_, this->timeout_us_ > 0 ? "us" : " (no timeout)");
 	ESP_LOGCONFIG(TAG, "  Timing Budget: %u us", this->measurement_timing_budget_us_);
 	ESP_LOGCONFIG(TAG, "  Distance Mode: %s", this->long_range_ ? "long" : "short");
-	if (this->roi_size_configured_) {
+	if (this->fov_preset_ != nullptr) {
+		ESP_LOGCONFIG(TAG, "  FoV Preset: %s (%ux%u SPADs)", this->fov_preset_, this->roi_width_, this->roi_height_);
+	} else if (this->roi_size_configured_) {
 		ESP_LOGCONFIG(TAG, "  ROI Size: %ux%u", this->roi_width_, this->roi_height_);
 	}
 	if (this->roi_center_configured_) {

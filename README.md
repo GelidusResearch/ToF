@@ -8,8 +8,10 @@ ESPHome external component for the ST VL53L1X time-of-flight distance sensor.
 - Configurable `long_range` / short mode
 - Configurable `timing_budget`
 - Configurable measurement timeout
-- Optional ROI size and center configuration
+- Named `fov` presets (`wide`, `medium`, `narrow`) — mutually exclusive with raw ROI
+- Optional raw ROI size and center configuration
 - Optional `enable_pin` support for multi-sensor bring-up and re-addressing
+- Multiple sensors on one I2C bus via staged enable-pin initialization
 
 ## Installation
 
@@ -18,6 +20,16 @@ Use this repository as an external component in your ESPHome config.
 ```yaml
 external_components:
   - source: github://GelidusResearch/ToF
+    components: [vl53l1x]
+```
+
+For local development, point directly to your local clone:
+
+```yaml
+external_components:
+  - source:
+      type: local
+      path: /path/to/ToF/components
     components: [vl53l1x]
 ```
 
@@ -31,8 +43,7 @@ i2c:
 
 sensor:
   - platform: vl53l1x
-    id: tof1
-    internal: true        # Keep data local
+    name: "Distance"
     address: 0x29
     timing_budget: 100ms
     update_interval: 125ms
@@ -46,20 +57,46 @@ sensor:
 - `long_range` (optional, default: `true`): `true` for long mode, `false` for short mode
 - `timeout` (optional, default: `500ms`): max `60s`
 - `timing_budget` (optional, default: `50ms`): one of `20ms`, `33ms`, `50ms`, `100ms`, `200ms`, `500ms`
-- `roi_width` (optional): ROI width in SPADs, range `4..16` (defaults to `16` if `roi_height` is set alone)
-- `roi_height` (optional): ROI height in SPADs, range `4..16` (defaults to `16` if `roi_width` is set alone)
-- `roi_center` (optional, default: `199`): ROI center SPAD index, range `0..255`
+- `fov` (optional): named field-of-view preset — `wide`, `medium`, or `narrow`. Mutually exclusive with `roi_width`, `roi_height`, and `roi_center`
+- `roi_width` (optional): ROI width in SPADs, range `4..16` (defaults to `16` if `roi_height` is set alone). Cannot be used with `fov`
+- `roi_height` (optional): ROI height in SPADs, range `4..16` (defaults to `16` if `roi_width` is set alone). Cannot be used with `fov`
+- `roi_center` (optional, default: `199`): ROI center SPAD index, range `0..255`. Cannot be used with `fov`
 - `enable_pin` (optional): GPIO pin used to power-gate/enable the sensor during staged initialization
 
+## FoV Preset Example
+
+Use `fov` for a simple named field-of-view selection. `fov` and raw ROI keys are mutually exclusive — a config error is raised if both are specified.
+
+| Preset   | ROI Size  | Approx. FoV |
+|----------|-----------|-------------|
+| `wide`   | 16×16     | ~27°        |
+| `medium` | 8×8       | ~15°        |
+| `narrow` | 4×4       | ~8°         |
+
+```yaml
+sensor:
+  - platform: vl53l1x
+    name: "Distance"
+    address: 0x29
+    fov: narrow
+```
+
+The boot log will show:
+```
+[C][vl53l1x]: FoV Preset: narrow (4x4 SPADs)
+```
+
 ## ROI Example
+
+Use raw ROI for precise SPAD control. Cannot be combined with `fov`.
 
 ```yaml
 sensor:
   - platform: vl53l1x
     name: "Center ROI Distance"
     address: 0x29
-    roi_width: 16
-    roi_height: 16
+    roi_width: 8
+    roi_height: 8
     roi_center: 199
 ```
 
@@ -130,9 +167,7 @@ This component applies `signal_rate_limit` through `VL53L1X_SetSignalThreshold(.
 
 If you use multiple VL53L1X sensors on the same I2C bus, define `enable_pin` for **every** VL53L1X sensor.
 
-Also, any sensor configured with a non-default `address` requires `enable_pin` so the component can safely bring sensors up one-by-one and assign addresses.
-
-Example:
+Any sensor configured with a non-default `address` requires `enable_pin` so the component can safely bring sensors up one-by-one and assign addresses.
 
 ```yaml
 sensor:
@@ -140,11 +175,13 @@ sensor:
     name: "Front Distance"
     address: 0x29
     enable_pin: GPIO16
+    fov: wide
 
   - platform: vl53l1x
     name: "Rear Distance"
     address: 0x30
     enable_pin: GPIO17
+    fov: narrow
 ```
 
 ## Notes
@@ -152,3 +189,4 @@ sensor:
 - Distances are published in meters.
 - Readings can publish `NaN` when a measurement is invalid or times out.
 - Recommended: keep `update_interval` at or above your chosen `timing_budget`.
+- `fov` and raw ROI keys (`roi_width`, `roi_height`, `roi_center`) are mutually exclusive — a config validation error is raised if both are used.
