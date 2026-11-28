@@ -3,6 +3,7 @@ extern "C" {
 #include "VL53L1X_api.h"
 }
 #include "esphome/core/log.h"
+#include <cinttypes>
 #include <vector>
 
 namespace esphome {
@@ -61,8 +62,8 @@ void VL53L1XSensor::dump_config() {
 	if (this->enable_pin_ != nullptr) {
 		LOG_PIN("  Enable Pin: ", this->enable_pin_);
 	}
-	ESP_LOGCONFIG(TAG, "  Timeout: %u%s", this->timeout_us_, this->timeout_us_ > 0 ? "us" : " (no timeout)");
-	ESP_LOGCONFIG(TAG, "  Timing Budget: %u us", this->measurement_timing_budget_us_);
+	ESP_LOGCONFIG(TAG, 	"  Timeout: %" PRIu32 "%s", this->timeout_us_, this->timeout_us_ > 0 ? "us" : " (no timeout)");
+		ESP_LOGCONFIG(TAG, "  Timing Budget: %" PRIu32 " us", this->measurement_timing_budget_us_);
 	ESP_LOGCONFIG(TAG, "  Distance Mode: %s", this->long_range_ ? "long" : "short");
 	if (this->fov_preset_ != nullptr) {
 		ESP_LOGCONFIG(TAG, "  FoV Preset: %s (%ux%u SPADs)", this->fov_preset_, this->roi_width_, this->roi_height_);
@@ -115,7 +116,7 @@ void VL53L1XSensor::setup() {
 		}
 
 		if ((micros() - id_start_us) > init_timeout_us) {
-			ESP_LOGE(TAG, "'%s' - timeout reading identification registers after enable (%u us)", this->name_.c_str(),
+			ESP_LOGE(TAG, "'%s' - timeout reading identification registers after enable (%" PRIu32 " us)", this->name_.progmem_ptr(),
 						 init_timeout_us);
 			this->mark_failed();
 			return;
@@ -134,19 +135,19 @@ void VL53L1XSensor::setup() {
 	this->revision_id_ = revision_id;
 	this->id_read_ok_ = true;
 	if (model_id != 0xEACC) {
-		ESP_LOGE(TAG, "'%s' - unexpected model id 0x%04X", this->name_.c_str(), model_id);
+		ESP_LOGE(TAG, "'%s' - unexpected model id 0x%04X", this->name_.progmem_ptr(), model_id);
 		this->mark_failed();
 		return;
 	}
 
 	if (!this->write_reg_(VL53L1_SOFT_RESET, 0x00)) {
-		ESP_LOGE(TAG, "'%s' - failed to write soft reset 0", this->name_.c_str());
+		ESP_LOGE(TAG, "'%s' - failed to write soft reset 0", this->name_.progmem_ptr());
 		this->mark_failed();
 		return;
 	}
 	delayMicroseconds(100);
 	if (!this->write_reg_(VL53L1_SOFT_RESET, 0x01)) {
-		ESP_LOGE(TAG, "'%s' - failed to write soft reset 1", this->name_.c_str());
+		ESP_LOGE(TAG, "'%s' - failed to write soft reset 1", this->name_.progmem_ptr());
 		this->mark_failed();
 		return;
 	}
@@ -156,13 +157,13 @@ void VL53L1XSensor::setup() {
 	uint8_t boot_state = 0;
 	while ((boot_state & 0x01) == 0) {
 		if (!this->read_reg_(VL53L1_FIRMWARE__SYSTEM_STATUS, &boot_state)) {
-			ESP_LOGE(TAG, "'%s' - failed reading boot state", this->name_.c_str());
+			ESP_LOGE(TAG, "'%s' - failed reading boot state", this->name_.progmem_ptr());
 			this->mark_failed();
 			return;
 		}
 
 		if (this->timeout_us_ > 0 && ((micros() - start_us) > this->timeout_us_)) {
-			ESP_LOGE(TAG, "'%s' - setup timeout waiting for boot", this->name_.c_str());
+			ESP_LOGE(TAG, "'%s' - setup timeout waiting for boot", this->name_.progmem_ptr());
 			this->mark_failed();
 			return;
 		}
@@ -172,24 +173,24 @@ void VL53L1XSensor::setup() {
 
 	uint8_t ext_sup = 0;
 	if (!this->read_reg_(VL53L1_PAD_I2C_HV__EXTSUP_CONFIG, &ext_sup)) {
-		ESP_LOGE(TAG, "'%s' - failed reading PAD_I2C_HV__EXTSUP_CONFIG", this->name_.c_str());
+		ESP_LOGE(TAG, "'%s' - failed reading PAD_I2C_HV__EXTSUP_CONFIG", this->name_.progmem_ptr());
 		this->mark_failed();
 		return;
 	}
 	if (!this->write_reg_(VL53L1_PAD_I2C_HV__EXTSUP_CONFIG, ext_sup | 0x01)) {
-		ESP_LOGE(TAG, "'%s' - failed enabling 2V8 I/O mode", this->name_.c_str());
+		ESP_LOGE(TAG, "'%s' - failed enabling 2V8 I/O mode", this->name_.progmem_ptr());
 		this->mark_failed();
 		return;
 	}
 
 	if (VL53L1X_SensorInit(0x29) != 0) {
-		ESP_LOGE(TAG, "'%s' - VL53L1X_SensorInit failed", this->name_.c_str());
+		ESP_LOGE(TAG, "'%s' - VL53L1X_SensorInit failed", this->name_.progmem_ptr());
 		this->mark_failed();
 		return;
 	}
 
 	if (VL53L1X_SetDistanceMode(0x29, this->long_range_ ? 2 : 1) != 0) {
-		ESP_LOGE(TAG, "'%s' - failed to set distance mode", this->name_.c_str());
+		ESP_LOGE(TAG, "'%s' - failed to set distance mode", this->name_.progmem_ptr());
 		this->mark_failed();
 		return;
 	}
@@ -201,21 +202,21 @@ void VL53L1XSensor::setup() {
 	if (timing_budget_ms == 0)
 		timing_budget_ms = 50;
 	if (VL53L1X_SetTimingBudgetInMs(0x29, timing_budget_ms) != 0) {
-		ESP_LOGE(TAG, "'%s' - invalid timing budget %u us", this->name_.c_str(), this->measurement_timing_budget_us_);
+		ESP_LOGE(TAG, "'%s' - invalid timing budget %" PRIu32 " us", this->name_.progmem_ptr(), this->measurement_timing_budget_us_);
 		this->mark_failed();
 		return;
 	}
 	this->measurement_timing_budget_us_ = static_cast<uint32_t>(timing_budget_ms) * 1000U;
 
 	if (VL53L1X_SetInterMeasurementInMs(0x29, timing_budget_ms) != 0) {
-		ESP_LOGE(TAG, "'%s' - failed to set intermeasurement", this->name_.c_str());
+		ESP_LOGE(TAG, "'%s' - failed to set intermeasurement", this->name_.progmem_ptr());
 		this->mark_failed();
 		return;
 	}
 
 	if (this->roi_size_configured_) {
 		if (VL53L1X_SetROI(0x29, this->roi_width_, this->roi_height_) != 0) {
-			ESP_LOGE(TAG, "'%s' - failed to set ROI size %ux%u", this->name_.c_str(), this->roi_width_,
+			ESP_LOGE(TAG, "'%s' - failed to set ROI size %ux%u", this->name_.progmem_ptr(), this->roi_width_,
 						 this->roi_height_);
 			this->mark_failed();
 			return;
@@ -224,7 +225,7 @@ void VL53L1XSensor::setup() {
 
 	if (this->roi_center_configured_) {
 		if (VL53L1X_SetROICenter(0x29, this->roi_center_) != 0) {
-			ESP_LOGE(TAG, "'%s' - failed to set ROI center %u", this->name_.c_str(), this->roi_center_);
+			ESP_LOGE(TAG, "'%s' - failed to set ROI center %u", this->name_.progmem_ptr(), this->roi_center_);
 			this->mark_failed();
 			return;
 		}
@@ -232,8 +233,8 @@ void VL53L1XSensor::setup() {
 
 	const uint32_t min_timeout_us = this->measurement_timing_budget_us_ * 2U;
 	if (this->timeout_us_ > 0 && this->timeout_us_ < min_timeout_us) {
-		ESP_LOGW(TAG, "'%s' - timeout %u us too low for timing budget %u us, clamping to %u us", this->name_.c_str(),
-					 this->timeout_us_, this->measurement_timing_budget_us_, min_timeout_us);
+		ESP_LOGW(TAG, "'%s' - timeout %" PRIu32 " us too low for timing budget %" PRIu32 " us, clamping to %" PRIu32 " us",
+						 this->name_.progmem_ptr(), this->timeout_us_, this->measurement_timing_budget_us_, min_timeout_us);
 		this->timeout_us_ = min_timeout_us;
 	}
 
@@ -241,14 +242,14 @@ void VL53L1XSensor::setup() {
 	const float signal_rate_q16_16 = signal_rate_limit_mcps * 65536.0f;
 	uint16_t signal_threshold_kcps = static_cast<uint16_t>((signal_rate_q16_16 / 65536.0f) * 1000.0f + 0.5f);
 	if (VL53L1X_SetSignalThreshold(0x29, signal_threshold_kcps) != 0) {
-		ESP_LOGW(TAG, "'%s' - failed to set signal threshold", this->name_.c_str());
+		ESP_LOGW(TAG, "'%s' - failed to set signal threshold", this->name_.progmem_ptr());
 	} else {
-		ESP_LOGV(TAG, "'%s' - signal rate limit %.3f MCPS (%u kcps)", this->name_.c_str(), signal_rate_limit_mcps,
+		ESP_LOGV(TAG, "'%s' - signal rate limit %.3f MCPS (%u kcps)", this->name_.progmem_ptr(), signal_rate_limit_mcps,
 					 signal_threshold_kcps);
 	}
 
 	if (VL53L1X_SetI2CAddress(0x29, static_cast<uint8_t>(final_address << 1)) != 0) {
-		ESP_LOGE(TAG, "'%s' - failed to set I2C address", this->name_.c_str());
+		ESP_LOGE(TAG, "'%s' - failed to set I2C address", this->name_.progmem_ptr());
 		this->mark_failed();
 		return;
 	}
@@ -256,7 +257,7 @@ void VL53L1XSensor::setup() {
 
 	VL53L1XSensor::set_active_sensor(this);
 	if (VL53L1X_StartRanging(final_address) != 0) {
-		ESP_LOGE(TAG, "'%s' - failed to start measurement", this->name_.c_str());
+		ESP_LOGE(TAG, "'%s' - failed to start measurement", this->name_.progmem_ptr());
 		this->mark_failed();
 		return;
 	}
@@ -267,19 +268,16 @@ void VL53L1XSensor::update() {
 	if (!this->measurement_started_) {
 		VL53L1XSensor::set_active_sensor(this);
 		if (VL53L1X_StartRanging(this->address_) != 0) {
-			ESP_LOGW(TAG, "'%s' - failed to start ranging", this->name_.c_str());
+			ESP_LOGW(TAG, "'%s' - failed to start ranging", this->name_.progmem_ptr());
 			this->publish_state(NAN);
-			this->status_momentary_warning("start", 5000);
+			this->status_momentary_warning();
 			return;
 		}
 		this->measurement_started_ = true;
 	}
 
 	if (this->initiated_read_) {
-		this->publish_state(NAN);
-		this->status_momentary_warning("update", 5000);
-		ESP_LOGW(TAG, "%s - update called before prior reading complete - initiated:%d", this->name_.c_str(),
-						 this->initiated_read_);
+		ESP_LOGD(TAG, "'%s' - update called before prior reading complete, skipping", this->name_.progmem_ptr());
 		return;
 	}
 
@@ -300,16 +298,16 @@ void VL53L1XSensor::loop() {
 	if (VL53L1X_CheckForDataReady(this->address_, &ready) != 0) {
 		this->initiated_read_ = false;
 		this->publish_state(NAN);
-		this->status_momentary_warning("read", 5000);
+		this->status_momentary_warning();
 		return;
 	}
 
 	if (ready == 0) {
 		if (this->timeout_us_ > 0 && (elapsed_us > this->timeout_us_)) {
-			ESP_LOGW(TAG, "'%s' - timeout waiting for data-ready", this->name_.c_str());
+			ESP_LOGW(TAG, "'%s' - timeout waiting for data-ready", this->name_.progmem_ptr());
 			this->initiated_read_ = false;
 			this->publish_state(NAN);
-			this->status_momentary_warning("timeout", 5000);
+			this->status_momentary_warning();
 		}
 		return;
 	}
@@ -321,42 +319,42 @@ void VL53L1XSensor::loop() {
 		VL53L1X_ClearInterrupt(this->address_);
 		this->initiated_read_ = false;
 		this->publish_state(NAN);
-		this->status_momentary_warning("read", 5000);
+		this->status_momentary_warning();
 		return;
 	}
 
 	uint16_t signal_rate_kcps = 0;
 	if (VL53L1X_GetSignalRate(this->address_, &signal_rate_kcps) == 0) {
-		ESP_LOGV(TAG, "'%s' - readSignalRate()=%u kcps", this->name_.c_str(), signal_rate_kcps);
+		ESP_LOGV(TAG, "'%s' - readSignalRate()=%u kcps", this->name_.progmem_ptr(), signal_rate_kcps);
 	} else {
-		ESP_LOGV(TAG, "'%s' - readSignalRate() failed", this->name_.c_str());
+		ESP_LOGV(TAG, "'%s' - readSignalRate() failed", this->name_.progmem_ptr());
 	}
 
 	uint16_t ambient_rate_kcps = 0;
 	if (VL53L1X_GetAmbientRate(this->address_, &ambient_rate_kcps) == 0) {
-		ESP_LOGV(TAG, "'%s' - readAmbientRate()=%u kcps", this->name_.c_str(), ambient_rate_kcps);
+		ESP_LOGV(TAG, "'%s' - readAmbientRate()=%u kcps", this->name_.progmem_ptr(), ambient_rate_kcps);
 	} else {
-		ESP_LOGV(TAG, "'%s' - readAmbientRate() failed", this->name_.c_str());
+		ESP_LOGV(TAG, "'%s' - readAmbientRate() failed", this->name_.progmem_ptr());
 	}
 
-	ESP_LOGV(TAG, "'%s' - readRangeStatus()=%u", this->name_.c_str(), range_status);
+	ESP_LOGV(TAG, "'%s' - readRangeStatus()=%u", this->name_.progmem_ptr(), range_status);
 
 	VL53L1X_ClearInterrupt(this->address_);
 	this->initiated_read_ = false;
 
 	const bool soft_phase_error = (range_status == 4 && range_mm > 0 && range_mm < 4000);
 	if ((!soft_phase_error && range_status != 0) || range_mm >= 4000) {
-		ESP_LOGD(TAG, "'%s' - invalid range: raw_status=%u distance=%u mm", this->name_.c_str(), range_status, range_mm);
+		ESP_LOGD(TAG, "'%s' - invalid range: raw_status=%u distance=%u mm", this->name_.progmem_ptr(), range_status, range_mm);
 		this->publish_state(NAN);
 		return;
 	}
 
 	float range_m = range_mm / 1e3f;
 	if (soft_phase_error) {
-		ESP_LOGD(TAG, "'%s' - soft phase error accepted: status=%u distance=%.3f m", this->name_.c_str(), range_status,
+		ESP_LOGD(TAG, "'%s' - soft phase error accepted: status=%u distance=%.3f m", this->name_.progmem_ptr(), range_status,
 					 range_m);
 	}
-	ESP_LOGD(TAG, "'%s' - Got distance %.3f m", this->name_.c_str(), range_m);
+	ESP_LOGD(TAG, "'%s' - Got distance %.3f m", this->name_.progmem_ptr(), range_m);
 	this->publish_state(range_m);
 }
 
